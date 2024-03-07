@@ -77,14 +77,14 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   auto mirrorElem      = detElem.child(_Unicode(mirror));
   auto mirrorMat       = desc.material(mirrorElem.attr<std::string>(_Unicode(material)));
   auto mirrorVis       = desc.visAttributes(mirrorElem.attr<std::string>(_Unicode(vis)));
-  auto mirrorSurf      = surfMgr.opticalSurface(mirrorElem.attr<std::string>(_Unicode(surface)));
-  auto mirrorBackplane = mirrorElem.attr<double>(_Unicode(backplane));
+  auto mirrorSurf      = surfMgr.opticalSurface(mirrorElem.attr<std::string>(_Unicode(surface)));  
   auto mirrorThickness = mirrorElem.attr<double>(_Unicode(thickness));
   auto mirrorRmin      = mirrorElem.attr<double>(_Unicode(rmin));
   auto mirrorRmax      = mirrorElem.attr<double>(_Unicode(rmax));
   auto mirrorPhiw      = mirrorElem.attr<double>(_Unicode(phiw));
-  auto focusTuneZ      = mirrorElem.attr<double>(_Unicode(focus_tune_z));
-  auto focusTuneX      = mirrorElem.attr<double>(_Unicode(focus_tune_x));
+  auto mirrorRad      = mirrorElem.attr<double>(_Unicode(radius));
+  auto mirrorZ      = mirrorElem.attr<double>(_Unicode(centerz));
+  auto mirrorX      = mirrorElem.attr<double>(_Unicode(centerx));
   // - sensorboxes
   auto sensorboxLength = desc.constant<double>("DRICH_sensorbox_length");
   auto sensorboxRmin   = desc.constant<double>("DRICH_sensorbox_rmin");
@@ -182,7 +182,6 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
 
   // derived attributes
   double tankLength = vesselLength - snoutLength;
-  double vesselZmax = vesselZmin + vesselLength;
 
   // snout solids
   double boreDelta  = vesselRmin1 - vesselRmin0;
@@ -355,12 +354,7 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
     // - sensor sphere center, w.r.t. IP
     double zS = sensorSphCenterZ + vesselZmin;
     double xS = sensorSphCenterX;
-    // - distance between IP and mirror back plane
-    double b = vesselZmax - mirrorBackplane;
-    // - desired focal region: sensor sphere center, offset by focus-tune (z,x) parameters
-    double zF = zS + focusTuneZ;
-    double xF = xS + focusTuneX;
-
+    
     // determine the mirror that focuses the IP to this desired region
     /* - uses point-to-point focusing to derive spherical mirror center
      *   `(mirrorCenterZ,mirrorCenterX)` and radius `mirrorRadius` for given
@@ -368,10 +362,12 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
      *   between the object (IP) and the mirror surface
      * - all coordinates are specified w.r.t. the object point (IP)
      */
-    double mirrorCenterZ = b * zF / (2 * b - zF);
-    double mirrorCenterX = b * xF / (2 * b - zF);
-    double mirrorRadius  = b - mirrorCenterZ;
+        
+    double mirrorCenterZ = mirrorZ; 
+    double mirrorCenterX = mirrorX; 
+    double mirrorRadius  = mirrorRad;
 
+    
     // translate mirror center to be w.r.t vessel front plane
     mirrorCenterZ -= vesselZmin;
 
