@@ -332,7 +332,7 @@ photodetector unit (PDU) assembly diagram: matrix of SiPMs with services
   />
 <sphericalpatch
   phiw="30*degree"
-  rmin="111.0*cm"
+  rmin="DRICH_sensorbox_rmin + 2.*cm"
   rmax="179.0*cm"
   zmin="DRICH_snout_length + 4.0*cm"
   />
