@@ -174,6 +174,9 @@
   thickness="0.2*cm"
   focus_tune_x="-7.00*cm"
   focus_tune_z="6.15*cm"
+  radius="219.788*cm"
+  centerz="93.9118*cm"
+  centerx="114.604*cm"
   />
 
 <!-- /detectors/detector/sensors -->
