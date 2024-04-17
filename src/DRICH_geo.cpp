@@ -185,8 +185,8 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
 
   // derived attributes
   double tankLength = vesselLength - snoutLength;
-  double vesselZmax = vesselZmin + vesselLength;
-
+  //double vesselZmax = vesselZmin + vesselLength;
+  
   // snout solids
   double boreDelta  = vesselRmin1 - vesselRmin0;
   double snoutDelta = vesselRmax1 - vesselRmax0;
