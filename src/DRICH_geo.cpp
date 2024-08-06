@@ -77,13 +77,24 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   auto mirrorMat       = desc.material(mirrorElem.attr<std::string>(_Unicode(material)));
   auto mirrorVis       = desc.visAttributes(mirrorElem.attr<std::string>(_Unicode(vis)));
   auto mirrorSurf      = surfMgr.opticalSurface(mirrorElem.attr<std::string>(_Unicode(surface)));
-  auto mirrorBackplane = mirrorElem.attr<double>(_Unicode(backplane));
+  //auto mirrorBackplane = mirrorElem.attr<double>(_Unicode(backplane));
   auto mirrorThickness = mirrorElem.attr<double>(_Unicode(thickness));
   auto mirrorRmin      = mirrorElem.attr<double>(_Unicode(rmin));
   auto mirrorRmax      = mirrorElem.attr<double>(_Unicode(rmax));
   auto mirrorPhiw      = mirrorElem.attr<double>(_Unicode(phiw));
-  auto focusTuneZ      = mirrorElem.attr<double>(_Unicode(focus_tune_z));
-  auto focusTuneX      = mirrorElem.attr<double>(_Unicode(focus_tune_x));
+  auto mirrorRadius1      = mirrorElem.attr<double>(_Unicode(radius1));
+  auto mirrorX1      = mirrorElem.attr<double>(_Unicode(centerx1));
+  auto mirrorY1      = mirrorElem.attr<double>(_Unicode(centery1));
+  auto mirrorRadius2      = mirrorElem.attr<double>(_Unicode(radius2));
+  auto mirrorX2      = mirrorElem.attr<double>(_Unicode(centerx2));
+  auto mirrorY2      = mirrorElem.attr<double>(_Unicode(centery2));
+  auto mirrorRadius3      = mirrorElem.attr<double>(_Unicode(radius3));
+  auto mirrorX3      = mirrorElem.attr<double>(_Unicode(centerx3));
+  auto mirrorY3      = mirrorElem.attr<double>(_Unicode(centery3));
+
+  auto xCut1      = mirrorElem.attr<double>(_Unicode(xcut1));
+  auto xCut2      = mirrorElem.attr<double>(_Unicode(xcut2));
+  
   // - sensorboxes
   auto sensorboxLength = desc.constant<double>("DRICH_sensorbox_length");
   auto sensorboxRmin   = desc.constant<double>("DRICH_sensorbox_rmin");
@@ -236,7 +247,7 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   UnionSolid vesselUnion(vesselTank, vesselSnout, Position(0., 0., -vesselLength / 2.));
   UnionSolid gasvolUnion(gasvolTank, gasvolSnout,
                          Position(0., 0., -vesselLength / 2. + windowThickness));
-
+  
   // union: add sensorboxes for all sectors
   for (int isec = 0; isec < nSectors; isec++) {
     RotationZ sectorRotation((isec + 0.5) * 2 * M_PI / nSectors);
@@ -388,82 +399,251 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
     std::string secName = "sec" + std::to_string(isec);
 
     // BUILD MIRRORS ====================================================================
-
-    // mirror positioning attributes
-    // - sensor sphere center, w.r.t. IP
     double zS = sensorSphCenterZ + vesselZmin;
     double xS = sensorSphCenterX;
-    // - distance between IP and mirror back plane
-    double b = vesselZmax - mirrorBackplane;
-    // - desired focal region: sensor sphere center, offset by focus-tune (z,x) parameters
-    double zF = zS + focusTuneZ;
-    double xF = xS + focusTuneX;
-
-    // determine the mirror that focuses the IP to this desired region
-    /* - uses point-to-point focusing to derive spherical mirror center
-     *   `(mirrorCenterZ,mirrorCenterX)` and radius `mirrorRadius` for given
-     *   image point coordinates `(zF,xF)` and `b`, defined as the z-distance
-     *   between the object (IP) and the mirror surface
-     * - all coordinates are specified w.r.t. the object point (IP)
-     */
-    double mirrorCenterZ = b * zF / (2 * b - zF);
-    double mirrorCenterX = b * xF / (2 * b - zF);
-    double mirrorRadius  = b - mirrorCenterZ;
-
-    // translate mirror center to be w.r.t vessel front plane
-    mirrorCenterZ -= vesselZmin;
-
-    // spherical mirror patch cuts and rotation
-    double mirrorThetaRot = std::asin(mirrorCenterX / mirrorRadius);
-    double mirrorTheta1   = mirrorThetaRot - std::asin((mirrorCenterX - mirrorRmin) / mirrorRadius);
-    double mirrorTheta2   = mirrorThetaRot + std::asin((mirrorRmax - mirrorCenterX) / mirrorRadius);
-
-    // if debugging, draw full sphere
-    if (debugMirror) {
-      mirrorTheta1 = 0;
-      mirrorTheta2 = M_PI; /*mirrorPhiw=2*M_PI;*/
-    }
 
     // solid : create sphere at origin, with specified angular limits;
     // phi limits are increased to fill gaps (overlaps are cut away later)
-    Sphere mirrorSolid1(mirrorRadius, mirrorRadius + mirrorThickness, mirrorTheta1, mirrorTheta2,
+    Sphere mirror1Solid(mirrorRadius1, mirrorRadius1 + mirrorThickness,
+			0,M_PI,
+                        -40 * degree, 40 * degree);
+    Sphere mirror2Solid(mirrorRadius2, mirrorRadius2 + mirrorThickness,
+			0,M_PI,
+                        -40 * degree, 40 * degree);
+    Sphere mirror3Solid(mirrorRadius3, mirrorRadius3 + mirrorThickness,
+			0,M_PI,
                         -40 * degree, 40 * degree);
 
-    // mirror placement transformation (note: transformations are in reverse order)
-    auto mirrorPos = Position(mirrorCenterX, 0., mirrorCenterZ) + originFront;
-    auto mirrorPlacement(
-        Translation3D(mirrorPos) * // re-center to specified position
-        RotationY(-mirrorThetaRot) // rotate about vertical axis, to be within vessel radial walls
-    );
+    auto calculateMaxZ = [](double x_min, double x_max, double R, double centerX){
+        double maxZ = -std::numeric_limits<double>::infinity();
+        for (double x = x_min; x <= x_max; x += 0.001) {
+            double localZ = std::sqrt(R * R - (x - centerX) * (x - centerX));
+            if (localZ > maxZ) {
+                maxZ = localZ;
+            }
+        }
+        return maxZ;
+    };
+    double maxZ1 = calculateMaxZ(mirrorRmin, xCut1, mirrorRadius1, mirrorX1);
+    double maxZ2 = calculateMaxZ(xCut1, xCut2, mirrorRadius2, mirrorX2);
+    double maxZ3 = calculateMaxZ(xCut2, mirrorRmax, mirrorRadius3, mirrorX3);
+    double z_b = vesselZmax - 1*cm;
+    auto determineZPositions = [z_b](double maxZ1, double maxZ2, double maxZ3,
+				     double R1, double R2, double R3,
+				     double x2, double x3,
+				     double centerX1, double centerX2, double centerX3) -> std::vector<double> {
+        double z_shift1 = z_b - maxZ1;
+        double z_shift2 = z_b - maxZ2;
+        double z_shift3 = z_b - maxZ3;
 
+        // Calculate boundary Z positions
+        double boundaryZ1 = z_shift1 + std::sqrt(R1 * R1 - (x2 - centerX1) * (x2 - centerX1));
+        double boundaryZ2 = z_shift2 + std::sqrt(R2 * R2 - (x2 - centerX2) * (x2 - centerX2));
+        double boundaryZ3 = z_shift2 + std::sqrt(R2 * R2 - (x3 - centerX2) * (x3 - centerX2));
+        double boundaryZ4 = z_shift3 + std::sqrt(R3 * R3 - (x3 - centerX3) * (x3 - centerX3));
+
+	double adjustment1 = (boundaryZ1 - boundaryZ2);
+	double adjustment3 = (boundaryZ4 - boundaryZ3);
+
+	z_shift1 -= adjustment1;
+	z_shift3 -= adjustment3;
+	
+        // Ensure boundary conditions are met
+        double maxBoundaryZ = std::max({maxZ1+z_shift1, maxZ2+z_shift2, maxZ3+z_shift3});
+        double z_shift_adjustment = z_b - maxBoundaryZ;
+	
+        z_shift1 += z_shift_adjustment;
+        z_shift2 += z_shift_adjustment;
+        z_shift3 += z_shift_adjustment;
+
+        // Return the adjusted z_shifts
+        return {z_shift1, z_shift2, z_shift3};
+    };
+
+    std::vector<double> z_positions = determineZPositions(maxZ1, maxZ2, maxZ3, mirrorRadius1, mirrorRadius2, mirrorRadius3,							  
+							  xCut1, xCut2,
+							  mirrorX1,mirrorX2,mirrorX3);
+    auto mirrorZ1 = z_positions[0];
+    auto mirrorZ2 = z_positions[1];
+    auto mirrorZ3 = z_positions[2];
+
+    mirrorZ1 -= vesselZmin;
+    mirrorZ2 -= vesselZmin;
+    mirrorZ3 -= vesselZmin;
+
+    // mirror placement transformation (note: transformations are in reverse order)
+    auto mirrorPos1 = Position(mirrorX1, mirrorY1, mirrorZ1) + originFront;
+    auto mirrorPos2 = Position(mirrorX2, mirrorY2, mirrorZ2) + originFront;
+    auto mirrorPos3 = Position(mirrorX3, mirrorY3, mirrorZ3) + originFront;
+
+ 
+    double tiltAngle1 = M_PI/2;
+    double tiltAngle2 = M_PI/2;
+    double tiltAngle3 = M_PI/2;
+    
+    auto mirror1Placement(
+			  Translation3D(mirrorPos1) * // re-center to specified position
+			  RotationY(-tiltAngle1) // rotate about vertical axis, to be within vessel radial walls
+			  );
+    auto mirror2Placement(
+			  Translation3D(mirrorPos2) * // re-center to specified position
+			  RotationY(-tiltAngle2) // rotate about vertical axis, to be within vessel radial walls
+			  );
+    auto mirror3Placement(
+			  Translation3D(mirrorPos3) * // re-center to specified position
+			  RotationY(-tiltAngle3) // rotate about vertical axis, to be within vessel radial walls
+			  );
+    
     // cut overlaps with other sectors using "pie slice" wedges, to the extent specified
     // by `mirrorPhiw`
-    Tube pieSlice(0.01 * cm, vesselRmax2, tankLength / 2.0, -mirrorPhiw / 2.0, mirrorPhiw / 2.0);
-    IntersectionSolid mirrorSolid2(pieSlice, mirrorSolid1, mirrorPlacement);
+    // CHANGE: make pie slice apply the radial cuts as well
+    Tube pieSlice(mirrorRmin, mirrorRmax,
+		  tankLength / 2.0, -mirrorPhiw / 2.0, mirrorPhiw / 2.0);
 
-    // mirror volume, attributes, and placement
-    Volume mirrorVol(detName + "_mirror_" + secName, mirrorSolid2, mirrorMat);
-    mirrorVol.setVisAttributes(mirrorVis);
+    IntersectionSolid mirror1Solid2(pieSlice, mirror1Solid, mirror1Placement);
+    IntersectionSolid mirror2Solid2(pieSlice, mirror2Solid, mirror2Placement);
+    IntersectionSolid mirror3Solid2(pieSlice, mirror3Solid, mirror3Placement);
+
+    // half space: point on the plane and plane normal
+    Vector3D mirror1Center(mirrorPos1.x(),mirrorPos1.y(),mirrorPos1.z());
+    Vector3D mirror2Center(mirrorPos2.x(),mirrorPos2.y(),mirrorPos2.z());
+    Vector3D mirror3Center(mirrorPos3.x(),mirrorPos3.y(),mirrorPos3.z());
+    //double xCut = vesselRmax2/2.;
+
+    double ribSpace = 0.5*cm;
+    double spliceBoxSize = 5*vesselRmax2;
+    Box spliceBox = Box(spliceBoxSize,spliceBoxSize,spliceBoxSize);
+    
+    Rotation3D plane_rotation_1 = RotationY(0)*RotationZ(0);
+    Rotation3D plane_rotation_2 = RotationY(0)*RotationZ(0);
+    
+    auto box1Pos1 = Position(xCut1 - (spliceBoxSize+ribSpace),0,0);
+    auto box1Pos2 = Position(xCut1 + (spliceBoxSize+ribSpace),0,0);
+    Transform3D spliceBox1Trans1 = Translation3D( box1Pos1) * plane_rotation_1;
+    Transform3D spliceBox1Trans2 = Translation3D( box1Pos2) * plane_rotation_2;
+
+    auto box2Pos1 = Position(xCut2 - (spliceBoxSize+ribSpace),0,0);
+    auto box2Pos2 = Position(xCut2 + (spliceBoxSize+ribSpace),0,0);
+    Transform3D spliceBox2Trans1 = Translation3D( box2Pos1) * plane_rotation_1;
+    Transform3D spliceBox2Trans2 = Translation3D( box2Pos2) * plane_rotation_2;
+
+    IntersectionSolid mirror1Solid3( mirror1Solid2, spliceBox, spliceBox1Trans1);
+
+    // 2 splice box cuts
+    IntersectionSolid mirror2Solid3( mirror2Solid2, spliceBox, spliceBox1Trans2);
+    IntersectionSolid mirror2Solid4( mirror2Solid3, spliceBox, spliceBox2Trans1);
+
+    IntersectionSolid mirror3Solid3( mirror3Solid2, spliceBox, spliceBox2Trans2);
+    
+    Volume mirror1Vol(detName + "_mirror_1_" + secName, mirror1Solid3, mirrorMat);
+    Volume mirror2Vol(detName + "_mirror_2_" + secName, mirror2Solid4, mirrorMat);
+    Volume mirror3Vol(detName + "_mirror_3_" + secName, mirror3Solid3, mirrorMat);
+    mirror1Vol.setVisAttributes(mirrorVis);
+    mirror2Vol.setVisAttributes(mirrorVis);
+    mirror3Vol.setVisAttributes(mirrorVis);
+
     auto mirrorSectorPlacement = Transform3D(sectorRotation); // rotate about beam axis to sector
-    auto mirrorPV              = gasvolVol.placeVolume(mirrorVol, mirrorSectorPlacement);
-
-    // properties
-    DetElement mirrorDE(det, "mirror_de_" + secName, isec);
-    mirrorDE.setPlacement(mirrorPV);
-    SkinSurface mirrorSkin(desc, mirrorDE, "mirror_optical_surface_" + secName, mirrorSurf,
-                           mirrorVol);
-    mirrorSkin.isValid();
-
+    
+    auto mirror1PV              = gasvolVol.placeVolume(mirror1Vol, mirrorSectorPlacement);
+    auto mirror2PV              = gasvolVol.placeVolume(mirror2Vol, mirrorSectorPlacement);
+    auto mirror3PV              = gasvolVol.placeVolume(mirror3Vol, mirrorSectorPlacement);
+    DetElement mirror1DE(det, "mirror_1_de_" + secName, isec);
+    DetElement mirror2DE(det, "mirror_2_de_" + secName, isec);
+    DetElement mirror3DE(det, "mirror_3_de_" + secName, isec);
+    mirror1DE.setPlacement(mirror1PV);
+    mirror2DE.setPlacement(mirror2PV);
+    mirror3DE.setPlacement(mirror3PV);
+    
+    SkinSurface mirror1Skin(desc, mirror1DE, "mirror_1_optical_surface_" + secName, mirrorSurf,
+			    mirror1Vol);
+    mirror1Skin.isValid();
+    SkinSurface mirror2Skin(desc, mirror2DE, "mirror_2_optical_surface_" + secName, mirrorSurf,
+			    mirror2Vol);
+    mirror2Skin.isValid();
+    SkinSurface mirror3Skin(desc, mirror3DE, "mirror_3_optical_surface_" + secName, mirrorSurf,
+			    mirror3Vol);
+    mirror3Skin.isValid();
+    
     // reconstruction constants (w.r.t. IP)
     // - access sector center after `sectorRotation`
-    auto mirrorFinalPlacement = mirrorSectorPlacement * mirrorPlacement;
-    auto mirrorFinalCenter    = vesselPos + mirrorFinalPlacement.Translation().Vect();
-    desc.add(Constant("DRICH_mirror_center_x_" + secName, std::to_string(mirrorFinalCenter.x())));
-    desc.add(Constant("DRICH_mirror_center_y_" + secName, std::to_string(mirrorFinalCenter.y())));
-    desc.add(Constant("DRICH_mirror_center_z_" + secName, std::to_string(mirrorFinalCenter.z())));
-    if (isec == 0)
-      desc.add(Constant("DRICH_mirror_radius", std::to_string(mirrorRadius)));
+    auto mirror1FinalPlacement = mirrorSectorPlacement * mirror1Placement;
+    auto mirror2FinalPlacement = mirrorSectorPlacement * mirror2Placement; 
+    auto mirror3FinalPlacement = mirrorSectorPlacement * mirror3Placement;
+    auto mirror1FinalCenter    = vesselPos + mirror1FinalPlacement.Translation().Vect();
+    auto mirror2FinalCenter    = vesselPos + mirror2FinalPlacement.Translation().Vect();
+    auto mirror3FinalCenter    = vesselPos + mirror3FinalPlacement.Translation().Vect();
 
+    // apply sector rotation to half spaces
+    auto plane1Pos1 = Position(xCut1 - (ribSpace),0,0);
+    auto plane1Pos2 = Position(xCut1 + (ribSpace),0,0);
+    auto plane2Pos1 = Position(xCut2 - (ribSpace),0,0);
+    auto plane2Pos2 = Position(xCut2 + (ribSpace),0,0);
+
+    auto plane1Pos1Sector = sectorRotation*plane1Pos1;
+    auto plane1Pos2Sector = sectorRotation*plane1Pos2;
+    auto plane2Pos1Sector = sectorRotation*plane2Pos1;
+    auto plane2Pos2Sector = sectorRotation*plane2Pos2;
+    
+    Vector3D plane1Dir1(-1,0,0);
+    Vector3D plane1Dir2(1,0,0);
+    Vector3D plane2Dir1(-1,0,0);
+    Vector3D plane2Dir2(1,0,0);
+    auto plane1Dir1Sector = sectorRotation*plane1Dir1;
+    auto plane1Dir2Sector = sectorRotation*plane1Dir2;
+    auto plane2Dir1Sector = sectorRotation*plane2Dir1;
+    auto plane2Dir2Sector = sectorRotation*plane2Dir2;
+
+
+    // MIRROR 1
+    desc.add(Constant("DRICH_mirror_1_center_x_" + secName, std::to_string(mirror1FinalCenter.x())));
+    desc.add(Constant("DRICH_mirror_1_center_y_" + secName, std::to_string(mirror1FinalCenter.y())));
+    desc.add(Constant("DRICH_mirror_1_center_z_" + secName, std::to_string(mirror1FinalCenter.z())));
+
+    desc.add(Constant("DRICH_mirror_1_halfspace1_point_x_" + secName, std::to_string(plane1Pos1Sector.x())));
+    desc.add(Constant("DRICH_mirror_1_halfspace1_point_y_" + secName, std::to_string(plane1Pos1Sector.y())));
+    desc.add(Constant("DRICH_mirror_1_halfspace1_point_z_" + secName, std::to_string(plane1Pos1Sector.z())));
+    desc.add(Constant("DRICH_mirror_1_halfspace1_dir_x_" + secName, std::to_string(plane1Dir1Sector.x())));
+    desc.add(Constant("DRICH_mirror_1_halfspace1_dir_y_" + secName, std::to_string(plane1Dir1Sector.y())));
+    desc.add(Constant("DRICH_mirror_1_halfspace1_dir_z_" + secName, std::to_string(plane1Dir1Sector.z())));
+    if (isec == 0)
+      desc.add(Constant("DRICH_mirror_1_radius", std::to_string(mirrorRadius1)));
+
+    // MIRROR 2
+    desc.add(Constant("DRICH_mirror_2_center_x_" + secName, std::to_string(mirror2FinalCenter.x())));
+    desc.add(Constant("DRICH_mirror_2_center_y_" + secName, std::to_string(mirror2FinalCenter.y())));
+    desc.add(Constant("DRICH_mirror_2_center_z_" + secName, std::to_string(mirror2FinalCenter.z())));
+
+    desc.add(Constant("DRICH_mirror_2_halfspace1_point_x_" + secName, std::to_string(plane1Pos2Sector.x())));
+    desc.add(Constant("DRICH_mirror_2_halfspace1_point_y_" + secName, std::to_string(plane1Pos2Sector.y())));
+    desc.add(Constant("DRICH_mirror_2_halfspace1_point_z_" + secName, std::to_string(plane1Pos2Sector.z())));
+    desc.add(Constant("DRICH_mirror_2_halfspace1_dir_x_" + secName, std::to_string(plane1Dir2Sector.x())));
+    desc.add(Constant("DRICH_mirror_2_halfspace1_dir_y_" + secName, std::to_string(plane1Dir2Sector.y())));
+    desc.add(Constant("DRICH_mirror_2_halfspace1_dir_z_" + secName, std::to_string(plane1Dir2Sector.z())));
+    desc.add(Constant("DRICH_mirror_2_halfspace2_point_x_" + secName, std::to_string(plane2Pos1Sector.x())));
+    desc.add(Constant("DRICH_mirror_2_halfspace2_point_y_" + secName, std::to_string(plane2Pos1Sector.y())));
+    desc.add(Constant("DRICH_mirror_2_halfspace2_point_z_" + secName, std::to_string(plane2Pos1Sector.z())));
+    desc.add(Constant("DRICH_mirror_2_halfspace2_dir_x_" + secName, std::to_string(plane2Dir1Sector.x())));
+    desc.add(Constant("DRICH_mirror_2_halfspace2_dir_y_" + secName, std::to_string(plane2Dir1Sector.y())));
+    desc.add(Constant("DRICH_mirror_2_halfspace2_dir_z_" + secName, std::to_string(plane2Dir1Sector.z())));
+    if (isec == 0)
+      desc.add(Constant("DRICH_mirror_2_radius", std::to_string(mirrorRadius2)));
+
+    // MIRROR 3
+    desc.add(Constant("DRICH_mirror_3_center_x_" + secName, std::to_string(mirror3FinalCenter.x())));
+    desc.add(Constant("DRICH_mirror_3_center_y_" + secName, std::to_string(mirror3FinalCenter.y())));
+    desc.add(Constant("DRICH_mirror_3_center_z_" + secName, std::to_string(mirror3FinalCenter.z())));
+    
+    desc.add(Constant("DRICH_mirror_3_halfspace2_point_x_" + secName, std::to_string(plane2Pos2Sector.x())));
+    desc.add(Constant("DRICH_mirror_3_halfspace2_point_y_" + secName, std::to_string(plane2Pos2Sector.y())));
+    desc.add(Constant("DRICH_mirror_3_halfspace2_point_z_" + secName, std::to_string(plane2Pos2Sector.z())));
+    desc.add(Constant("DRICH_mirror_3_halfspace2_dir_x_" + secName, std::to_string(plane2Dir2Sector.x())));
+    desc.add(Constant("DRICH_mirror_3_halfspace2_dir_y_" + secName, std::to_string(plane2Dir2Sector.y())));
+    desc.add(Constant("DRICH_mirror_3_halfspace2_dir_z_" + secName, std::to_string(plane2Dir2Sector.z())));
+    if (isec == 0)
+      desc.add(Constant("DRICH_mirror_3_radius", std::to_string(mirrorRadius3)));
+
+
+    
     // BUILD SENSORS ====================================================================
 
     // if debugging sphere properties, restrict number of sensors drawn
