@@ -428,13 +428,13 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
     double maxZ2 = calculateMaxZ(xCut1, xCut2, mirrorRadius2, mirrorX2);
     double maxZ3 = calculateMaxZ(xCut2, mirrorRmax, mirrorRadius3, mirrorX3);
     double z_b = vesselZmax - 1*cm;
-    auto determineZPositions = [z_b](double maxZ1, double maxZ2, double maxZ3,
+    auto determineZPositions = [z_b](double zmax1, double zmax2, double zmax3,
 				     double R1, double R2, double R3,
 				     double x2, double x3,
 				     double centerX1, double centerX2, double centerX3) -> std::vector<double> {
-        double z_shift1 = z_b - maxZ1;
-        double z_shift2 = z_b - maxZ2;
-        double z_shift3 = z_b - maxZ3;
+        double z_shift1 = z_b - zmax1;
+        double z_shift2 = z_b - zmax2;
+        double z_shift3 = z_b - zmax3;
 
         // Calculate boundary Z positions
         double boundaryZ1 = z_shift1 + std::sqrt(R1 * R1 - (x2 - centerX1) * (x2 - centerX1));
@@ -449,7 +449,7 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
 	z_shift3 -= adjustment3;
 	
         // Ensure boundary conditions are met
-        double maxBoundaryZ = std::max({maxZ1+z_shift1, maxZ2+z_shift2, maxZ3+z_shift3});
+        double maxBoundaryZ = std::max({zmax1+z_shift1, zmax2+z_shift2, zmax3+z_shift3});
         double z_shift_adjustment = z_b - maxBoundaryZ;
 	
         z_shift1 += z_shift_adjustment;
