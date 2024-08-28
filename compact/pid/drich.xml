@@ -179,15 +179,11 @@
   radius2="219.8*cm"
   centery2="0*cm"
 
-  radius3="219.8*cm"
-  centery3="0*cm"
-
-  xcut1 = "DRICH_rmin1 + (DRICH_rmax2 - DRICH_rmin1)/3"
-  xcut2 = "DRICH_rmin1 + 2*(DRICH_rmax2 - DRICH_rmin1)/3"
+  xcut1 = "(DRICH_rmin1 + DRICH_rmax2)/2"
 
   centerx1="114.6*cm"
   centerx2="114.6*cm"
-  centerx3="114.6*cm"
+
   />
 
 <!-- /detectors/detector/sensors -->
