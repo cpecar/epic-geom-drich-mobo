@@ -22,9 +22,10 @@
 <constant name="DRICH_rmax2"              value="ForwardPIDRegion_rmax"/>  <!-- cylinder radius -->
 <!-- sensor boxes: extrusions of the tank, to hold the sensors and their services -->
 <constant name="DRICH_sensorbox_length"   value="50.0*cm"/>  <!-- z-length of the extrusion -->
-<constant name="DRICH_sensorbox_rmin"     value="DRICH_rmax1 + 2*cm"/>  <!-- lower radial limit of the extrusion -->
+<constant name="DRICH_sensorbox_rmin"     value="DRICH_rmax1 + 3.5*cm"/>  <!-- lower radial limit of the extrusion -->
 <constant name="DRICH_sensorbox_rmax"     value="DRICH_rmax2 + 5*cm"/>  <!-- upper radial limit of the extrusion -->
 <constant name="DRICH_sensorbox_dphi"     value="42*degree"/>  <!-- azimuthal width of the extrusion -->
+<constant name="DRICH_sensorbox_cut"     value="12*cm"/>  <!-- azimuthal width of the extrusion -->
 <!-- aerogel+filter geometry -->
 <constant name="DRICH_aerogel_thickness"  value="4.0*cm"/>  <!-- aerogel thickness -->
 <constant name="DRICH_airgap_thickness"   value="0.01*mm"/> <!-- air gap between aerogel and filter -->
@@ -144,7 +145,6 @@
     thickness="DRICH_filter_thickness"
     />
 </radiator>
-
 
 <!-- /detectors/detector/mirror -->
 <documentation level="10">
@@ -326,13 +326,13 @@ photodetector unit (PDU) assembly diagram: matrix of SiPMs with services
     - `zmin`: z-plane cut
 </documentation>
 <sphere
-  centerz="138.4*cm - DRICH_zmin"
-  centerx="183.4*cm"
-  radius="110.0*cm"
+  centerz="1*cm"
+  centerx="0.1"
+  radius="400.0*cm"
   />
 <sphericalpatch
   phiw="18*degree"
-  rmin="111.0*cm"
+  rmin="DRICH_sensorbox_rmin + 3.0*cm"
   rmax="179.0*cm"
   zmin="DRICH_snout_length + 4.0*cm"
   />

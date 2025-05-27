@@ -85,13 +85,14 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   //auto focusTuneZ      = mirrorElem.attr<double>(_Unicode(focus_tune_z));
   //auto focusTuneX      = mirrorElem.attr<double>(_Unicode(focus_tune_x));
   auto mirrorRad      = mirrorElem.attr<double>(_Unicode(radius));
-  auto mirrorZ      = mirrorElem.attr<double>(_Unicode(centerz));
+  auto mirrorZ      = 314*cm - mirrorRad;//mirrorElem.attr<double>(_Unicode(centerz));
   auto mirrorX      = mirrorElem.attr<double>(_Unicode(centerx));
   // - sensorboxes
   auto sensorboxLength = desc.constant<double>("DRICH_sensorbox_length");
   auto sensorboxRmin   = desc.constant<double>("DRICH_sensorbox_rmin");
   auto sensorboxRmax   = desc.constant<double>("DRICH_sensorbox_rmax");
   auto sensorboxDphi   = desc.constant<double>("DRICH_sensorbox_dphi");
+  auto sensorboxZCut   = desc.constant<double>("DRICH_sensorbox_cut");
   // - sensor photosensitive surface (pss)
   auto pssElem      = detElem.child(_Unicode(sensors)).child(_Unicode(pss));
   auto pssMat       = desc.material(pssElem.attr<std::string>(_Unicode(material)));
@@ -113,8 +114,8 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   // - sensor sphere
   auto sensorSphElem    = detElem.child(_Unicode(sensors)).child(_Unicode(sphere));
   auto sensorSphRadius  = sensorSphElem.attr<double>(_Unicode(radius));
-  auto sensorSphCenterX = sensorSphElem.attr<double>(_Unicode(centerx));
-  auto sensorSphCenterZ = sensorSphElem.attr<double>(_Unicode(centerz));
+  auto sensorSphCenterXScale = sensorSphElem.attr<double>(_Unicode(centerx));
+  auto sensorSphCenterdZ = sensorSphElem.attr<double>(_Unicode(centerz));
   // - sensor sphere patch cuts
   auto sensorSphPatchElem = detElem.child(_Unicode(sensors)).child(_Unicode(sphericalpatch));
   auto sensorSphPatchPhiw = sensorSphPatchElem.attr<double>(_Unicode(phiw));
@@ -128,7 +129,7 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   bool debugSector     = desc.constant<int>("DRICH_debug_sector") == 1;
   bool debugMirror     = desc.constant<int>("DRICH_debug_mirror") == 1;
   bool debugSensors    = desc.constant<int>("DRICH_debug_sensors") == 1;
-
+  
   // if debugging optics, override some settings
   bool debugOptics = debugOpticsMode > 0;
   if (debugOptics) {
@@ -394,13 +395,16 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
 
     // mirror positioning attributes
     // - sensor sphere center, w.r.t. IP
+    double xDefault = 146.5*cm;
+    double sensorSphCenterX = xDefault + sensorSphRadius*sensorSphCenterXScale;
+
+    // shift z position based on radius, s.t. it is still at the front of the snout + some dz
+    // 110: lower X value of sensor box 
+    double dzSnout = snoutLength - 20*cm;
+    double sensorSphCenterZ = sensorSphCenterdZ + 44.0*cm - sqrt( pow(sensorSphRadius,2) - pow((146.5-sensorSphCenterX),2) ) + dzSnout;
+
     double zS = sensorSphCenterZ + vesselZmin;
     double xS = sensorSphCenterX;
-    // - distance between IP and mirror back plane
-    //double b = vesselZmax - mirrorBackplane;
-    // - desired focal region: sensor sphere center, offset by focus-tune (z,x) parameters
-    //double zF = zS + focusTuneZ;
-    //double xF = xS + focusTuneX;
 
     // determine the mirror that focuses the IP to this desired region
     /* - uses point-to-point focusing to derive spherical mirror center
@@ -445,7 +449,7 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
 
     // cut overlaps with other sectors using "pie slice" wedges, to the extent specified
     // by `mirrorPhiw`
-    Tube pieSlice(0.01 * cm, vesselRmax2, tankLength / 2.0, -mirrorPhiw / 2.0, mirrorPhiw / 2.0);
+    Tube pieSlice(0.01 * cm, vesselRmax2 - 1*cm, tankLength / 2.0, -mirrorPhiw / 2.0, mirrorPhiw / 2.0);
     IntersectionSolid mirrorSolid2(pieSlice, mirrorSolid1, mirrorPlacement);
 
     // mirror volume, attributes, and placement
@@ -508,13 +512,16 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
      *   - if we pick a patch of the sphere near the equator, and not near
      *     the poles or seam, the sensor distribution will appear uniform
      */
-
+    
     // initialize PDU number for this sector
     int ipdu = 0;
 
+    double z_sensorbox_back = vesselZmin + tankLength/2 + snoutLength/2 - sensorboxLength + 0.3 + sensorboxZCut;
+    // +sensorboxZCut(~12cm) to account for PDU length
+    
     // calculate PDU pitch: the distance between two adjacent PDUs
     double pduPitch = pduNumSensors * resinSide + (pduNumSensors + 1) * pduSensorGap + pduGap;
-
+    
     // thetaGen loop: iterate less than "0.5 circumference / sensor size" times
     double nTheta = M_PI * sensorSphRadius / pduPitch;
     for (int t = 0; t < (int)(nTheta + 0.5); t++) {
@@ -539,19 +546,18 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
         // double theta = std::acos(z / sensorSphRadius);
 
         // shift global coordinates so we can apply spherical patch cuts
-        double zCheck   = z + sensorSphCenterZ;
+        double zCheck   = z + sensorSphCenterZ; // zglobal = z + sensorSphCenterZ + drich_zmin
         double xCheck   = x + sensorSphCenterX;
         double yCheck   = y;
         double rCheck   = std::hypot(xCheck, yCheck);
         double phiCheck = std::atan2(yCheck, xCheck);
-
         // patch cut
-        bool patchCut = std::fabs(phiCheck) < sensorSphPatchPhiw && zCheck > sensorSphPatchZmin &&
+        bool patchCut = std::fabs(phiCheck) < sensorSphPatchPhiw && zCheck > sensorSphPatchZmin && (zCheck+vesselZmin) > z_sensorbox_back &&
                         rCheck > sensorSphPatchRmin && rCheck < sensorSphPatchRmax;
         if (debugSensors)
           patchCut = std::fabs(phiCheck) < sensorSphPatchPhiw;
         if (patchCut) {
-
+	  
           /* begin building sensors and PDUs, where:
            * - sensor assembly: collection of all objects for a single SiPM
            * - photodetector unit (PDU) assembly: matrix of SiPMs with services
@@ -826,7 +832,7 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
         } // end patch cuts
       } // end phiGen loop
     } // end thetaGen loop
-
+    
     // END SENSOR MODULE LOOP ------------------------
 
     // add constant for access to the number of PDUs per sector
