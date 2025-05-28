@@ -25,7 +25,7 @@
 <constant name="DRICH_sensorbox_rmin"     value="DRICH_rmax1 + 3.5*cm"/>  <!-- lower radial limit of the extrusion -->
 <constant name="DRICH_sensorbox_rmax"     value="DRICH_rmax2 + 5*cm"/>  <!-- upper radial limit of the extrusion -->
 <constant name="DRICH_sensorbox_dphi"     value="42*degree"/>  <!-- azimuthal width of the extrusion -->
-<constant name="DRICH_sensorbox_cut"     value="12*cm"/>  <!-- azimuthal width of the extrusion -->
+<constant name="DRICH_sensorbox_cut"     value="13*cm"/>  <!-- azimuthal width of the extrusion -->
 <!-- aerogel+filter geometry -->
 <constant name="DRICH_aerogel_thickness"  value="4.0*cm"/>  <!-- aerogel thickness -->
 <constant name="DRICH_airgap_thickness"   value="0.01*mm"/> <!-- air gap between aerogel and filter -->
