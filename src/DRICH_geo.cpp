@@ -93,6 +93,20 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   auto sensorboxRmax   = desc.constant<double>("DRICH_sensorbox_rmax");
   auto sensorboxDphi   = desc.constant<double>("DRICH_sensorbox_dphi");
   auto sensorboxZCut   = desc.constant<double>("DRICH_sensorbox_cut");
+
+  // quartz window implemented by Deepak Samuel (https://github.com/deepaksamuel/epic),
+  // same shape as sensor box but smaller in length and different material and displaced
+  auto quartzElem         = detElem.child(_Unicode(quartzwindow));
+  auto quartzwinThickness = quartzElem.attr<double>("thickness");
+  auto quartzwinRmin      = quartzElem.attr<double>("rmin");
+  auto quartzwinRmax      = quartzElem.attr<double>("rmax");
+  auto quartzwinZmin      = quartzElem.attr<double>("zmin");
+  auto quartzwinZmax      = quartzElem.attr<double>("zmax");
+  auto quartzwinDphi      = quartzElem.attr<double>("phiw");
+  auto quartzwinShift     = quartzElem.attr<double>("shift");
+  auto quartzwinMat       = desc.material(quartzElem.attr<std::string>(_Unicode(material)));
+  auto quartzwinVis       = desc.visAttributes(quartzElem.attr<std::string>(_Unicode(vis)));
+
   // - sensor photosensitive surface (pss)
   auto pssElem      = detElem.child(_Unicode(sensors)).child(_Unicode(pss));
   auto pssMat       = desc.material(pssElem.attr<std::string>(_Unicode(material)));
@@ -115,7 +129,7 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   auto sensorSphElem    = detElem.child(_Unicode(sensors)).child(_Unicode(sphere));
   auto sensorSphRadius  = sensorSphElem.attr<double>(_Unicode(radius));
   auto sensorSphCenterXScale = sensorSphElem.attr<double>(_Unicode(centerx));
-  auto sensorSphCenterdZ = sensorSphElem.attr<double>(_Unicode(centerz));
+  //auto sensorSphCenterdZ = sensorSphElem.attr<double>(_Unicode(centerz));
   // - sensor sphere patch cuts
   auto sensorSphPatchElem = detElem.child(_Unicode(sensors)).child(_Unicode(sphericalpatch));
   auto sensorSphPatchPhiw = sensorSphPatchElem.attr<double>(_Unicode(phiw));
@@ -329,6 +343,49 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
   airgapVol.setVisAttributes(airgapVis);
   filterVol.setVisAttributes(filterVis);
 
+  // quartz window placement
+  quartzwinZmin += (snoutLength - 20*cm); // default is 20cm, if snout shorter/longer, shift QW 
+  float qw_slope    =  (quartzwinRmax - quartzwinRmin)/(quartzwinZmax-quartzwinZmin);
+  float qw_intercpt =   quartzwinRmax - qw_slope*quartzwinZmax;
+  double qw_angle    =   (atan(qw_slope)-(M_PI/2));
+  double qw_zpos     = -((qw_intercpt/qw_slope) + vesselPos.z()) + quartzwinThickness/2 + quartzwinShift;
+  // rmax should be increased so that the top edge matches at the right point (2545,1790)
+  float quartzwinRmax2 = (quartzwinRmax) / cos(qw_angle);
+  float quartzwinRmin2 = (quartzwinRmax2-quartzwinRmax)+(quartzwinRmin);
+  RotationY tiltRotation(qw_angle);
+
+  for (int isec = 0; isec < nSectors; isec++) {
+    Tube quartzTube(quartzwinRmin2, quartzwinRmax2, (quartzwinThickness/2.), 
+		    -quartzwinDphi / 2.,
+		    quartzwinDphi / 2.);
+    
+    std::string secName = "sec" + std::to_string(isec);
+    Volume quartzVol(detName + "_quartzwin_"+secName, quartzTube, quartzwinMat);//"_quartz_" + secName
+    quartzVol.setSensitiveDetector(sens);
+    quartzVol.setVisAttributes(quartzwinVis);
+    // positioning:
+    // the origin is currently at (0,0,2680 mm), given by vesselPos
+    // First: each quartz window is rotated about the z axis by the same amount as the sensor box
+    // Second: Each quartz window is placed such that it is tangential to the central part of the sensor
+    // this requires a rotation about the y axis
+    // Note that all rotations are about the origin and therefore the quartz window has to be shifted back by a suitable amount
+    // It also requires a shifting along y and z due to the rotation
+
+    RotationZ sectorRotation((isec + 0.5) * 2 * M_PI / nSectors); // apply same rotation as sensorbox
+    
+    auto quartzPlacement = Translation3D(0., 0, qw_zpos)* RotationZ((isec + 0.5) * 2 * M_PI / nSectors)*tiltRotation ; //*tiltRotation// re-center to originFront
+    
+    auto quartzPV = gasvolVol.placeVolume(quartzVol, quartzPlacement);
+    quartzPV.addPhysVolID("sector", isec)
+      .addPhysVolID("pdu", 999).addPhysVolID("sipm",999); // Unique identifier for quartz window
+    
+    auto sensorID = encodeSensorID(quartzPV.volIDs());
+    DetElement quartzDE(det, "quartz_de"+secName, sensorID);
+    quartzDE.setPlacement(quartzPV);  
+  }
+
+
+  
   // aerogel placement and surface properties
   // TODO [low-priority]: define skin properties for aerogel and filter
   // FIXME: radiatorPitch might not be working correctly (not yet used)
@@ -400,11 +457,9 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
 
     // shift z position based on radius, s.t. it is still at the front of the snout + some dz
     // 110: lower X value of sensor box 
-    double dzSnout = snoutLength - 20*cm;
-    double sensorSphCenterZ = sensorSphCenterdZ + 44.0*cm - sqrt( pow(sensorSphRadius,2) - pow((146.5-sensorSphCenterX),2) ) + dzSnout;
+    //double dzSnout = snoutLength - 20*cm;
 
-    double zS = sensorSphCenterZ + vesselZmin;
-    double xS = sensorSphCenterX;
+    //double sensorSphCenterZ = sensorSphCenterdZ + 44.0*cm - sqrt( pow(sensorSphRadius,2) - pow((146.5-sensorSphCenterX),2) ) + dzSnout; // for position with no QW
 
     // determine the mirror that focuses the IP to this desired region
     /* - uses point-to-point focusing to derive spherical mirror center
@@ -477,6 +532,71 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
 
     // BUILD SENSORS ====================================================================
 
+    // FIRST LOOP: determine position of PDU that will be closest to the QW,
+    // s.t. we can adjust the z position of the sensor sphere appropriately
+    // (assuming we have some prescribed distance from QW to closest PDU)
+
+    double pduPitch = pduNumSensors * resinSide + (pduNumSensors + 1) * pduSensorGap + pduGap;
+    double nTheta = M_PI * sensorSphRadius / pduPitch;
+    // calculate PDU pitch: the distance between two adjacent PDUs
+    
+    Vector3D nQW(sin(qw_angle), 0, cos(qw_angle));
+    double xqw = (quartzwinRmin + quartzwinRmax)/2;
+    double zqw = (quartzwinZmin + quartzwinZmax)/2 - vesselZmin;
+    Vector3D pQW(xqw,0,zqw);
+    double dmax = -1e6;
+    double initZ = -500; // choice of initial z shouldn't matter, just want it behind the QW
+    
+    for (int t = 0; t < (int)(nTheta + 0.5); t++) {
+      double thetaGen = t / ((double)nTheta) * M_PI;
+
+      // phiGen loop: iterate less than "circumference at this latitude / sensor size" times
+      double nPhi = 2 * M_PI * sensorSphRadius * std::sin(thetaGen) / pduPitch;
+      for (int p = 0; p < (int)(nPhi + 0.5); p++) {
+        double phiGen = p / ((double)nPhi) * 2 * M_PI - M_PI; // shift to [-pi,pi]
+	
+        // determine global phi and theta
+        // - convert {radius,thetaGen,phiGen} -> {xGen,yGen,zGen}
+        double xGen = sensorSphRadius * std::sin(thetaGen) * std::cos(phiGen);
+        double yGen = sensorSphRadius * std::sin(thetaGen) * std::sin(phiGen);
+        double zGen = sensorSphRadius * std::cos(thetaGen);
+        // - convert {xGen,yGen,zGen} -> global {x,y,z} via rotation
+        double x = zGen;
+        double y = xGen;
+        double z = yGen;
+
+	// - convert global {x,y,z} -> global {phi,theta}
+        // double phi   = std::atan2(y, x);
+        // double theta = std::acos(z / sensorSphRadius);
+
+        // shift global coordinates so we can apply spherical patch cuts
+        double xCheck   = x + sensorSphCenterX;
+        double yCheck   = y;
+        double rCheck   = std::hypot(xCheck, yCheck);
+        double phiCheck = std::atan2(yCheck, xCheck);
+        // patch cut
+        bool patchCut = std::fabs(phiCheck) < sensorSphPatchPhiw &&
+					      rCheck > sensorSphPatchRmin && rCheck < sensorSphPatchRmax;
+        if (debugSensors)
+          patchCut = std::fabs(phiCheck) < sensorSphPatchPhiw;
+        if (patchCut) {
+	  // store if to be closest to the QW
+	  Vector3D Csensor(sensorSphCenterX,0,initZ);
+	  Vector3D sensorpos(x,0,z);
+	  double d = nQW.dot(Csensor+sensorpos-pQW);
+	  if(d > dmax){
+	    dmax = d;
+	  }
+	}	
+      }
+    }
+    // shift sensor sphere based on QW position
+    double gap = 5.0*mm;
+    double delta = -gap - dmax;
+    double sensorSphCenterZ = initZ + delta/nQW.z();
+    double zS = sensorSphCenterZ + vesselZmin;
+    double xS = sensorSphCenterX;
+    
     // if debugging sphere properties, restrict number of sensors drawn
     if (debugSensors) {
       pssSide = 2 * M_PI * sensorSphRadius / 64;
@@ -518,12 +638,9 @@ static Ref_t createDetector(Detector& desc, xml::Handle_t handle, SensitiveDetec
 
     double z_sensorbox_back = vesselZmin + tankLength/2 + snoutLength/2 - sensorboxLength + 0.3 + sensorboxZCut;
     // +sensorboxZCut(~12cm) to account for PDU length
-    
-    // calculate PDU pitch: the distance between two adjacent PDUs
-    double pduPitch = pduNumSensors * resinSide + (pduNumSensors + 1) * pduSensorGap + pduGap;
+
     
     // thetaGen loop: iterate less than "0.5 circumference / sensor size" times
-    double nTheta = M_PI * sensorSphRadius / pduPitch;
     for (int t = 0; t < (int)(nTheta + 0.5); t++) {
       double thetaGen = t / ((double)nTheta) * M_PI;
 
